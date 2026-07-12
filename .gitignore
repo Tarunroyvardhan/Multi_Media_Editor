@@ -1,0 +1,17 @@
+# Backend
+backend/.env
+backend/mediaeditor.db
+backend/storage/uploads/*
+backend/storage/processed/*
+backend/storage/masks/*
+!backend/storage/uploads/.gitkeep
+!backend/storage/processed/.gitkeep
+!backend/storage/masks/.gitkeep
+backend/ai_models/*.pt
+backend/__pycache__/
+backend/**/__pycache__/
+backend/venv/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

@@ -1,0 +1,24 @@
+# Install AFTER requirements.txt:
+#   pip install -r requirements-ai.txt
+#   pip install --no-deps simple-lama-inpainting==0.1.2
+#
+# simple-lama-inpainting is installed separately with --no-deps because it
+# pins Pillow<10, which conflicts with Pillow 10.4.0 in requirements.txt.
+# In practice it works fine against newer Pillow — only its declared pin is
+# outdated.
+#
+# You have an NVIDIA RTX GPU, so torch/torchvision below install the CUDA
+# build (via the cu121 index) instead of CPU-only wheels. Both
+# segmentation.py and inpainting.py auto-detect CUDA at runtime and use it
+# automatically — no other code changes needed.
+#
+# If `nvidia-smi` doesn't work in your terminal, your NVIDIA driver isn't
+# installed/up to date — install/update it first from nvidia.com, then run
+# this install. Without it, torch will silently fall back to CPU.
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+timm>=1.0.0
+fire>=0.5.0
+git+https://github.com/ChaoningZhang/MobileSAM.git
