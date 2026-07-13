@@ -96,12 +96,18 @@ def process_video_frames(
             if mask.shape[:2] != frame_rgb.shape[:2]:
                 mask = cv2.resize(mask, (frame_rgb.shape[1], frame_rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
 
+            # SAM2's tracked mask tends to under-cover fine edges (feathers,
+            # wingtips, thin limbs) more than single-image segmentation does,
+            # especially once frames are downscaled for speed — dilate extra
+            # here, on top of the dilation already inside remove_object_array,
+            # so those edges actually get covered instead of leaving a visible
+            # outline of the original object.
+            video_dilate_kernel = np.ones((21, 21), np.uint8)
+            mask = cv2.dilate(mask, video_dilate_kernel, iterations=1)
+
             is_keyframe = (i % frame_skip == 0) or last_lama_result_rgb is None
             curr_gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
 
-            # Compute optical flow at most once per frame (only when we
-            # actually need it), reused below for both warping and
-            # smoothing instead of computing it twice at full resolution.
             flow = None
             need_flow = (not is_keyframe and prev_orig_gray is not None) or (
                 smoothing_weight > 0 and prev_result_rgb is not None and prev_mask is not None
