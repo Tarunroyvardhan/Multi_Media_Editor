@@ -42,7 +42,9 @@ def _ensure_frames_extracted(media: MediaFile, owner_id: int) -> str:
         shutil.rmtree(frames_dir)
 
     input_path = _resolve_current_path(media)
-    extract_frames(input_path, frames_dir)
+    extracted_fps, _ = extract_frames(input_path, frames_dir)
+    with open(os.path.join(frames_dir, "fps.txt"), "w") as f:
+        f.write(str(extracted_fps))
     with open(marker, "w") as f:
         f.write("ok")
     return frames_dir
@@ -121,7 +123,10 @@ def _run_video_removal(job_id: str, media_id: int, owner_id: int, mask_id: str):
         input_path = _resolve_current_path(media)
         from app.utils.video_frames import get_video_info
 
-        fps, num_frames = get_video_info(input_path)
+        original_fps, _ = get_video_info(input_path)
+        with open(os.path.join(frames_dir, "fps.txt")) as f:
+            extracted_fps = float(f.read().strip())
+        num_frames = len([f for f in os.listdir(frames_dir) if f.endswith(".jpg")])
 
         masks = video_segmentation.propagate_masks(
             inference_state, num_frames, progress_cb=lambda f: update_job(job_id, progress=0.5 * f)
@@ -139,7 +144,7 @@ def _run_video_removal(job_id: str, media_id: int, owner_id: int, mask_id: str):
         ext = os.path.splitext(media.stored_filename)[1]
         output_name = f"{uuid.uuid4().hex}{ext}"
         output_path = os.path.join(settings.processed_dir, output_name)
-        reassemble_video(output_frames_dir, fps, input_path, output_path)
+        reassemble_video(output_frames_dir, extracted_fps, original_fps, input_path, output_path)
 
         media.current_filename = output_name
         db.commit()
