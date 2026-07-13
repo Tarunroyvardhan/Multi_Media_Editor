@@ -40,6 +40,13 @@ export const mediaApi = {
   segment: (id, payload) => client.post(`/media/${id}/segment`, payload),
   removeObject: (id, mask_id) => client.post(`/media/${id}/remove-object`, { mask_id }),
   remove: (id) => client.delete(`/media/${id}`),
+  firstFrameUrl: (id) => {
+    const token = localStorage.getItem('token')
+    return `${API_BASE_URL}/media/${id}/first-frame?token=${encodeURIComponent(token)}`
+  },
+  videoSegment: (id, payload) => client.post(`/media/${id}/video-segment`, payload),
+  videoRemoveObject: (id, mask_id) => client.post(`/media/${id}/video-remove-object`, { mask_id }),
+  videoRemoveObjectJob: (id, jobId) => client.get(`/media/${id}/video-remove-object/jobs/${jobId}`),
 }
 
 export default client

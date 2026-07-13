@@ -21,16 +21,22 @@ def _get_lama():
             if _simple_lama is None:
                 from simple_lama_inpainting import SimpleLama
 
-                _simple_lama = SimpleLama()
+                # Forced to CPU: on GPUs with limited VRAM (4GB or less),
+                # LaMa competing with SAM2 for the same memory during video
+                # removal causes severe slowdown/thrashing, not just OOM.
+                # LaMa is fast enough on CPU that this is worth the tradeoff.
+                _simple_lama = SimpleLama(device="cpu")
     return _simple_lama
 
 
-def remove_object(image_path: str, mask: np.ndarray, output_path: str) -> None:
-    """mask is a uint8 array (0/255) the same height/width as the image at
-    image_path. The masked region is inpainted and the result written to
-    output_path."""
+def remove_object_array(image_rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Core routine used by both photo and video removal. image_rgb is a
+    uint8 HxWx3 RGB array, mask is a uint8 HxW array (0/255). Returns the
+    result as a uint8 HxWx3 RGB array. See remove_object() below for the
+    file-based version photos use, and video_inpainting.py for how video
+    frames reuse this per-frame."""
     lama = _get_lama()
-    image = Image.open(image_path).convert("RGB")
+    image = Image.fromarray(image_rgb)
     h, w = mask.shape
 
     # Segmentation tends to under-cover thin structures (leaves, hair,
@@ -48,7 +54,7 @@ def remove_object(image_path: str, mask: np.ndarray, output_path: str) -> None:
 
     result = lama(image, mask_img)
     result_arr = np.array(result)[:h, :w].astype(np.float64)
-    orig_arr = np.array(image).astype(np.float64)
+    orig_arr = image_rgb.astype(np.float64)
 
     # Feather the effective (dilated) mask for a smooth blend at the edge —
     # composite using this, not the raw under-covering mask, so leaf/edge
@@ -57,4 +63,13 @@ def remove_object(image_path: str, mask: np.ndarray, output_path: str) -> None:
     alpha = np.clip(feathered / 255.0, 0, 1)[..., None]
 
     final = orig_arr * (1 - alpha) + result_arr * alpha
-    Image.fromarray(final.astype(np.uint8)).save(output_path)
+    return final.astype(np.uint8)
+
+
+def remove_object(image_path: str, mask: np.ndarray, output_path: str) -> None:
+    """mask is a uint8 array (0/255) the same height/width as the image at
+    image_path. The masked region is inpainted and the result written to
+    output_path."""
+    image_rgb = np.array(Image.open(image_path).convert("RGB"))
+    final = remove_object_array(image_rgb, mask)
+    Image.fromarray(final).save(output_path)

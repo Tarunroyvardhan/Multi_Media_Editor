@@ -72,3 +72,21 @@ class SegmentResponse(BaseModel):
 
 class RemoveObjectRequest(BaseModel):
     mask_id: str
+
+
+class VideoSegmentResponse(BaseModel):
+    mask_id: str
+    score: float
+    overlay_png_base64: str
+    first_frame_width: int
+    first_frame_height: int
+
+
+class VideoRemoveObjectResponse(BaseModel):
+    job_id: str
+
+
+class JobStatus(BaseModel):
+    status: str  # pending | processing | done | failed
+    progress: float
+    error: Optional[str] = None

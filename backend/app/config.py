@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     upload_dir: str = "storage/uploads"
     processed_dir: str = "storage/processed"
     masks_dir: str = "storage/masks"
+    video_work_dir: str = "storage/video_work"
     ai_models_dir: str = "ai_models"
     frontend_origin: str = "http://localhost:5173"
 
@@ -22,3 +23,4 @@ settings = Settings()
 os.makedirs(settings.upload_dir, exist_ok=True)
 os.makedirs(settings.processed_dir, exist_ok=True)
 os.makedirs(settings.masks_dir, exist_ok=True)
+os.makedirs(settings.video_work_dir, exist_ok=True)

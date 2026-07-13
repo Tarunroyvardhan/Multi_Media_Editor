@@ -55,6 +55,8 @@ export default function Editor() {
   const [maskScore, setMaskScore] = useState(null)
   const [maskOverlayUrl, setMaskOverlayUrl] = useState(null)
   const [segmenting, setSegmenting] = useState(false)
+  const [videoProcessing, setVideoProcessing] = useState(false)
+  const [videoProgress, setVideoProgress] = useState(0)
 
   const loadMedia = async () => {
     const res = await mediaApi.list()
@@ -128,7 +130,8 @@ export default function Editor() {
     setSegmenting(true)
     setError('')
     try {
-      const res = await mediaApi.segment(media.id, payload)
+      const apiCall = media.media_type === 'video' ? mediaApi.videoSegment : mediaApi.segment
+      const res = await apiCall(media.id, payload)
       setMaskId(res.data.mask_id)
       setMaskScore(res.data.score)
       setMaskOverlayUrl(`data:image/png;base64,${res.data.overlay_png_base64}`)
@@ -184,11 +187,48 @@ export default function Editor() {
     runSegment({ mode: 'box', box: [x1, y1, x2, y2] })
   }
 
-  const applyRemoveObject = () =>
-    runAction(async () => {
-      await mediaApi.removeObject(media.id, maskId)
-      clearSelection()
+  const pollVideoJob = (jobId) =>
+    new Promise((resolve, reject) => {
+      const interval = setInterval(async () => {
+        try {
+          const res = await mediaApi.videoRemoveObjectJob(media.id, jobId)
+          setVideoProgress(res.data.progress)
+          if (res.data.status === 'done') {
+            clearInterval(interval)
+            resolve()
+          } else if (res.data.status === 'failed') {
+            clearInterval(interval)
+            reject(new Error(res.data.error || 'Video processing failed'))
+          }
+        } catch (err) {
+          clearInterval(interval)
+          reject(err)
+        }
+      }, 2000)
     })
+
+  const applyRemoveObject = async () => {
+    if (media.media_type !== 'video') {
+      return runAction(async () => {
+        await mediaApi.removeObject(media.id, maskId)
+        clearSelection()
+      })
+    }
+
+    setVideoProcessing(true)
+    setVideoProgress(0)
+    setError('')
+    try {
+      const res = await mediaApi.videoRemoveObject(media.id, maskId)
+      await pollVideoJob(res.data.job_id)
+      clearSelection()
+      await loadMedia()
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Video processing failed')
+    } finally {
+      setVideoProcessing(false)
+    }
+  }
 
   const startDrag = (handle) => (e) => {
     e.preventDefault()
@@ -234,12 +274,17 @@ export default function Editor() {
       <div className="editor-shell">
         <div className="editor-topbar">
           <div className="left">
-            <button className="btn-icon btn" onClick={() => navigate('/')}>
+            <button className="btn-icon btn" onClick={() => navigate('/')} disabled={videoProcessing}>
               <ArrowLeft size={16} />
             </button>
             <span className="project-name">{media.original_filename}</span>
           </div>
-          <a href={mediaApi.fileUrl(media.id, media.current_filename)} download className="btn btn-primary">
+          <a
+            href={mediaApi.fileUrl(media.id, media.current_filename)}
+            download
+            className="btn btn-primary"
+            style={videoProcessing ? { pointerEvents: 'none', opacity: 0.5 } : undefined}
+          >
             <Download size={15} />
             Export
           </a>
@@ -251,6 +296,7 @@ export default function Editor() {
               <button
                 className={`tool-btn ${tool === 'trim' ? 'active' : ''}`}
                 onClick={() => setTool('trim')}
+                disabled={videoProcessing}
               >
                 <span className="icon"><Scissors size={18} /></span>
                 Trim
@@ -259,14 +305,16 @@ export default function Editor() {
             <button
               className={`tool-btn ${tool === 'crop' ? 'active' : ''}`}
               onClick={() => setTool('crop')}
+              disabled={videoProcessing}
             >
               <span className="icon"><Crop size={18} /></span>
               Crop
             </button>
-            {media.media_type === 'photo' && (
+            {(media.media_type === 'photo' || media.media_type === 'video') && (
               <button
                 className={`tool-btn ${tool === 'remove' ? 'active' : ''}`}
                 onClick={() => setTool('remove')}
+                disabled={videoProcessing}
               >
                 <span className="icon"><Eraser size={18} /></span>
                 Remove
@@ -294,11 +342,20 @@ export default function Editor() {
                   onLoad={measureImgBox}
                   draggable={false}
                 />
+              ) : tool === 'remove' ? (
+                <img
+                  ref={imgRef}
+                  key={`${media.current_filename}-firstframe`}
+                  src={mediaApi.firstFrameUrl(media.id)}
+                  alt="First frame"
+                  onLoad={measureImgBox}
+                  draggable={false}
+                />
               ) : (
                 <video key={media.current_filename} src={mediaApi.fileUrl(media.id, media.current_filename)} controls onLoadedMetadata={onVideoLoaded} />
               )}
 
-              {tool === 'remove' && media.media_type === 'photo' && imgBox && (
+              {tool === 'remove' && (media.media_type === 'photo' || media.media_type === 'video') && imgBox && (
                 <div
                   className="removal-overlay"
                   style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}
@@ -386,9 +443,15 @@ export default function Editor() {
               </>
             )}
 
-            {tool === 'remove' && media.media_type === 'photo' && (
+            {tool === 'remove' && (media.media_type === 'photo' || media.media_type === 'video') && (
               <>
                 <h4>Remove object</h4>
+                {media.media_type === 'video' && (
+                  <p className="hint-text">
+                    Select the object on this first frame — it'll be tracked and removed
+                    across the whole video.
+                  </p>
+                )}
                 <p className="hint-text">
                   Click the object to remove it, or draw a box around it.
                 </p>
@@ -399,6 +462,7 @@ export default function Editor() {
                       setRemovalMode('point')
                       clearSelection()
                     }}
+                    disabled={videoProcessing}
                   >
                     <MousePointerClick size={14} />
                     Point
@@ -409,6 +473,7 @@ export default function Editor() {
                       setRemovalMode('box')
                       clearSelection()
                     }}
+                    disabled={videoProcessing}
                   >
                     <Square size={14} />
                     Box
@@ -420,17 +485,33 @@ export default function Editor() {
                   <div className="score-chip">Match confidence: {(maskScore * 100).toFixed(0)}%</div>
                 )}
 
+                {videoProcessing && (
+                  <div className="field-group">
+                    <label>
+                      Processing video…
+                      <span className="val">{Math.round(videoProgress * 100)}%</span>
+                    </label>
+                    <div className="progress-track">
+                      <div className="progress-fill" style={{ width: `${videoProgress * 100}%` }} />
+                    </div>
+                    <p className="hint-text">
+                      Tracking and removing the object across every frame — this can take
+                      a while for longer videos. Please don't close this tab.
+                    </p>
+                  </div>
+                )}
+
                 <div className="apply-bar">
                   <button
                     className="btn btn-primary"
                     style={{ width: '100%', justifyContent: 'center' }}
-                    disabled={busy || !maskId}
+                    disabled={busy || !maskId || videoProcessing}
                     onClick={applyRemoveObject}
                   >
                     <Eraser size={15} />
-                    Remove selected object
+                    {videoProcessing ? 'Processing…' : 'Remove selected object'}
                   </button>
-                  {(maskId || dragBox) && (
+                  {(maskId || dragBox) && !videoProcessing && (
                     <button
                       className="btn btn-ghost"
                       style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }}

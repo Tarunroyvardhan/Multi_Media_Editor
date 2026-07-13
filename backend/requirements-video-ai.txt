@@ -1,0 +1,12 @@
+# Install AFTER requirements.txt and requirements-ai.txt:
+#   pip install -r requirements-video-ai.txt
+#   python download_video_ai_models.py
+#
+# SAM2 is Meta's official video segmentation model — unlike MobileSAM
+# (single image), it can track a mask across every frame of a video from
+# just one click/box on the first frame. This is a genuinely heavy
+# dependency (pulls in a large CUDA stack via torch) and benefits a lot
+# from your GPU — video mask tracking on CPU will be very slow for
+# anything beyond a few seconds of footage.
+
+sam2
