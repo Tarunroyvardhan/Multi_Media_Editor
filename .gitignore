@@ -8,6 +8,7 @@ backend/storage/masks/*
 !backend/storage/processed/.gitkeep
 !backend/storage/masks/.gitkeep
 backend/ai_models/*.pt
+backend/storage/video_work/*.jpg
 backend/__pycache__/
 backend/**/__pycache__/
 backend/venv/
