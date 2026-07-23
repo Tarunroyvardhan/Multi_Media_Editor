@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square } from 'lucide-react'
+import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2 } from 'lucide-react'
 import TopBar from '../components/TopBar'
 import { mediaApi } from '../api/client'
 
@@ -57,6 +57,7 @@ export default function Editor() {
   const [segmenting, setSegmenting] = useState(false)
   const [videoProcessing, setVideoProcessing] = useState(false)
   const [videoProgress, setVideoProgress] = useState(0)
+  const [firstFrameLoading, setFirstFrameLoading] = useState(false)
 
   const loadMedia = async () => {
     const res = await mediaApi.list()
@@ -103,6 +104,7 @@ export default function Editor() {
 
   useEffect(() => {
     if (tool !== 'remove') return
+    if (media?.media_type === 'video') setFirstFrameLoading(true)
     measureImgBox()
     window.addEventListener('resize', measureImgBox)
     return () => window.removeEventListener('resize', measureImgBox)
@@ -348,7 +350,10 @@ export default function Editor() {
                   key={`${media.current_filename}-firstframe`}
                   src={mediaApi.firstFrameUrl(media.id)}
                   alt="First frame"
-                  onLoad={measureImgBox}
+                  onLoad={() => {
+                    measureImgBox()
+                    setFirstFrameLoading(false)
+                  }}
                   draggable={false}
                 />
               ) : (
@@ -381,6 +386,27 @@ export default function Editor() {
                   style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}
                 />
               )}
+
+              {(firstFrameLoading || segmenting || busy || videoProcessing) && (
+                <div className="loading-overlay">
+                  <Loader2 size={28} className="spin" />
+                  <span>
+                    {firstFrameLoading
+                      ? 'Extracting video frame…'
+                      : segmenting
+                      ? 'Detecting object…'
+                      : videoProcessing
+                      ? `Processing video… ${Math.round(videoProgress * 100)}%`
+                      : 'Applying changes…'}
+                  </span>
+                  {firstFrameLoading && (
+                    <span className="sub">Longer videos take a bit longer here</span>
+                  )}
+                  {videoProcessing && (
+                    <span className="sub">Don't close this tab</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -401,6 +427,7 @@ export default function Editor() {
                     disabled={busy}
                     onClick={() => runAction(() => mediaApi.trim(media.id, start, end))}
                   >
+                    {busy && <Loader2 size={15} className="spin" />}
                     Apply trim
                   </button>
                 </div>
@@ -437,6 +464,7 @@ export default function Editor() {
                     disabled={busy}
                     onClick={() => runAction(() => mediaApi.crop(media.id, x, y, width, height))}
                   >
+                    {busy && <Loader2 size={15} className="spin" />}
                     Apply crop
                   </button>
                 </div>
@@ -480,7 +508,6 @@ export default function Editor() {
                   </button>
                 </div>
 
-                {segmenting && <p className="hint-text">Detecting object…</p>}
                 {maskScore !== null && !segmenting && (
                   <div className="score-chip">Match confidence: {(maskScore * 100).toFixed(0)}%</div>
                 )}
@@ -508,7 +535,7 @@ export default function Editor() {
                     disabled={busy || !maskId || videoProcessing}
                     onClick={applyRemoveObject}
                   >
-                    <Eraser size={15} />
+                    {busy || videoProcessing ? <Loader2 size={15} className="spin" /> : <Eraser size={15} />}
                     {videoProcessing ? 'Processing…' : 'Remove selected object'}
                   </button>
                   {(maskId || dragBox) && !videoProcessing && (
@@ -556,6 +583,7 @@ export default function Editor() {
                     disabled={busy}
                     onClick={() => runAction(() => mediaApi.filter(media.id, filterName, intensity))}
                   >
+                    {busy && <Loader2 size={15} className="spin" />}
                     Apply filter
                   </button>
                 </div>
