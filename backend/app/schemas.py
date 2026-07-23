@@ -54,8 +54,39 @@ class CropRequest(BaseModel):
 
 
 class FilterRequest(BaseModel):
-    filter_name: str  # grayscale | brightness | contrast | blur | sepia
+    filter_name: str  # grayscale | brightness | contrast | blur | sepia | saturation | sharpen
     intensity: Optional[float] = 1.0
+
+
+class RotateRequest(BaseModel):
+    degrees: int  # 90, 180, or 270
+
+
+class FlipRequest(BaseModel):
+    direction: str  # "horizontal" or "vertical"
+
+
+class ResizeRequest(BaseModel):
+    width: int
+    height: int
+
+
+class SpeedRequest(BaseModel):
+    factor: float  # e.g. 0.5 = half speed, 2.0 = double speed
+
+
+class VolumeRequest(BaseModel):
+    level: float = 1.0
+    mute: bool = False
+
+
+class WatermarkRequest(BaseModel):
+    text: str
+    x: int = 10
+    y: int = 10
+    font_size: int = 32
+    color: str = "#FFFFFF"
+    opacity: float = 1.0
 
 
 class SegmentRequest(BaseModel):

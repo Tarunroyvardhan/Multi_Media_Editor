@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2 } from 'lucide-react'
+import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2, RotateCw, FlipHorizontal2, FlipVertical2, Maximize2, Gauge, Volume2, VolumeX, Type } from 'lucide-react'
 import TopBar from '../components/TopBar'
 import { mediaApi } from '../api/client'
 
@@ -10,6 +10,8 @@ const FILTERS = [
   { id: 'contrast', label: 'Contrast' },
   { id: 'blur', label: 'Blur' },
   { id: 'sepia', label: 'Sepia' },
+  { id: 'saturation', label: 'Saturation' },
+  { id: 'sharpen', label: 'Sharpen' },
 ]
 
 function formatTime(seconds) {
@@ -43,6 +45,22 @@ export default function Editor() {
   // filter
   const [filterName, setFilterName] = useState('grayscale')
   const [intensity, setIntensity] = useState(1.0)
+
+  // resize
+  const [resizeWidth, setResizeWidth] = useState(640)
+  const [resizeHeight, setResizeHeight] = useState(480)
+
+  // speed / volume (video)
+  const [speedFactor, setSpeedFactor] = useState(1.0)
+  const [volumeLevel, setVolumeLevel] = useState(1.0)
+  const [volumeMute, setVolumeMute] = useState(false)
+
+  // watermark
+  const [watermarkText, setWatermarkText] = useState('')
+  const [watermarkX, setWatermarkX] = useState(10)
+  const [watermarkY, setWatermarkY] = useState(10)
+  const [watermarkFontSize, setWatermarkFontSize] = useState(32)
+  const [watermarkColor, setWatermarkColor] = useState('#FFFFFF')
 
   // remove object
   const frameRef = useRef(null)
@@ -322,6 +340,36 @@ export default function Editor() {
                 Remove
               </button>
             )}
+            {(media.media_type === 'photo' || media.media_type === 'video') && (
+              <button
+                className={`tool-btn ${tool === 'transform' ? 'active' : ''}`}
+                onClick={() => setTool('transform')}
+                disabled={videoProcessing}
+              >
+                <span className="icon"><RotateCw size={18} /></span>
+                Transform
+              </button>
+            )}
+            {media.media_type === 'video' && (
+              <button
+                className={`tool-btn ${tool === 'adjust' ? 'active' : ''}`}
+                onClick={() => setTool('adjust')}
+                disabled={videoProcessing}
+              >
+                <span className="icon"><Gauge size={18} /></span>
+                Speed/Vol
+              </button>
+            )}
+            {(media.media_type === 'photo' || media.media_type === 'video') && (
+              <button
+                className={`tool-btn ${tool === 'watermark' ? 'active' : ''}`}
+                onClick={() => setTool('watermark')}
+                disabled={videoProcessing}
+              >
+                <span className="icon"><Type size={18} /></span>
+                Watermark
+              </button>
+            )}
             {media.media_type === 'photo' && (
               <button
                 className={`tool-btn ${tool === 'filter' ? 'active' : ''}`}
@@ -547,6 +595,191 @@ export default function Editor() {
                       Clear selection
                     </button>
                   )}
+                </div>
+              </>
+            )}
+
+            {tool === 'transform' && (
+              <>
+                <h4>Rotate &amp; Flip</h4>
+                <div className="mode-toggle">
+                  <button
+                    className="btn btn-ghost"
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.rotate(media.id, 90))}
+                  >
+                    <RotateCw size={14} />
+                    Rotate 90°
+                  </button>
+                </div>
+                <div className="mode-toggle">
+                  <button
+                    className="btn btn-ghost"
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.flip(media.id, 'horizontal'))}
+                  >
+                    <FlipHorizontal2 size={14} />
+                    Flip H
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.flip(media.id, 'vertical'))}
+                  >
+                    <FlipVertical2 size={14} />
+                    Flip V
+                  </button>
+                </div>
+
+                <h4 style={{ marginTop: '1.25rem' }}>Resize</h4>
+                <div className="field-row">
+                  <div className="field-group">
+                    <label>Width <span className="val">{resizeWidth}</span></label>
+                    <input type="number" value={resizeWidth} onChange={(e) => setResizeWidth(Number(e.target.value))} />
+                  </div>
+                  <div className="field-group">
+                    <label>Height <span className="val">{resizeHeight}</span></label>
+                    <input type="number" value={resizeHeight} onChange={(e) => setResizeHeight(Number(e.target.value))} />
+                  </div>
+                </div>
+                <div className="apply-bar">
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.resize(media.id, resizeWidth, resizeHeight))}
+                  >
+                    {busy && <Loader2 size={15} className="spin" />}
+                    <Maximize2 size={15} />
+                    Apply resize
+                  </button>
+                </div>
+              </>
+            )}
+
+            {tool === 'adjust' && media.media_type === 'video' && (
+              <>
+                <h4>Speed</h4>
+                <div className="field-group">
+                  <label>Speed factor <span className="val">{speedFactor.toFixed(2)}x</span></label>
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="4"
+                    step="0.05"
+                    value={speedFactor}
+                    onChange={(e) => setSpeedFactor(Number(e.target.value))}
+                  />
+                </div>
+                <div className="apply-bar">
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.speed(media.id, speedFactor))}
+                  >
+                    {busy && <Loader2 size={15} className="spin" />}
+                    Apply speed
+                  </button>
+                </div>
+
+                <h4 style={{ marginTop: '1.25rem' }}>Volume</h4>
+                <div className="field-group">
+                  <label>Level <span className="val">{volumeMute ? 'Muted' : `${volumeLevel.toFixed(1)}x`}</span></label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.1"
+                    value={volumeLevel}
+                    disabled={volumeMute}
+                    onChange={(e) => setVolumeLevel(Number(e.target.value))}
+                  />
+                </div>
+                <div className="mode-toggle">
+                  <button
+                    className={`btn ${volumeMute ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setVolumeMute(!volumeMute)}
+                  >
+                    {volumeMute ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    {volumeMute ? 'Muted' : 'Mute'}
+                  </button>
+                </div>
+                <div className="apply-bar">
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.volume(media.id, volumeLevel, volumeMute))}
+                  >
+                    {busy && <Loader2 size={15} className="spin" />}
+                    Apply volume
+                  </button>
+                </div>
+              </>
+            )}
+
+            {tool === 'watermark' && (
+              <>
+                <h4>Watermark</h4>
+                <div className="field-group">
+                  <label>Text</label>
+                  <input
+                    type="text"
+                    value={watermarkText}
+                    onChange={(e) => setWatermarkText(e.target.value)}
+                    placeholder="Your text here"
+                  />
+                </div>
+                <div className="field-row">
+                  <div className="field-group">
+                    <label>X <span className="val">{watermarkX}</span></label>
+                    <input type="number" value={watermarkX} onChange={(e) => setWatermarkX(Number(e.target.value))} />
+                  </div>
+                  <div className="field-group">
+                    <label>Y <span className="val">{watermarkY}</span></label>
+                    <input type="number" value={watermarkY} onChange={(e) => setWatermarkY(Number(e.target.value))} />
+                  </div>
+                </div>
+                <div className="field-group">
+                  <label>Font size <span className="val">{watermarkFontSize}</span></label>
+                  <input
+                    type="range"
+                    min="10"
+                    max="120"
+                    step="1"
+                    value={watermarkFontSize}
+                    onChange={(e) => setWatermarkFontSize(Number(e.target.value))}
+                  />
+                </div>
+                {media.media_type === 'photo' && (
+                  <div className="field-group">
+                    <label>Color</label>
+                    <input type="color" value={watermarkColor} onChange={(e) => setWatermarkColor(e.target.value)} />
+                  </div>
+                )}
+                <div className="apply-bar">
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    disabled={busy || !watermarkText.trim()}
+                    onClick={() =>
+                      runAction(() =>
+                        mediaApi.watermark(media.id, {
+                          text: watermarkText,
+                          x: watermarkX,
+                          y: watermarkY,
+                          font_size: watermarkFontSize,
+                          color: watermarkColor,
+                          opacity: 1.0,
+                        })
+                      )
+                    }
+                  >
+                    {busy && <Loader2 size={15} className="spin" />}
+                    <Type size={15} />
+                    Apply watermark
+                  </button>
                 </div>
               </>
             )}

@@ -37,6 +37,12 @@ export const mediaApi = {
     client.post(`/media/${id}/crop`, { x, y, width, height }),
   filter: (id, filter_name, intensity) =>
     client.post(`/media/${id}/filter`, { filter_name, intensity }),
+  rotate: (id, degrees) => client.post(`/media/${id}/rotate`, { degrees }),
+  flip: (id, direction) => client.post(`/media/${id}/flip`, { direction }),
+  resize: (id, width, height) => client.post(`/media/${id}/resize`, { width, height }),
+  speed: (id, factor) => client.post(`/media/${id}/speed`, { factor }),
+  volume: (id, level, mute) => client.post(`/media/${id}/volume`, { level, mute }),
+  watermark: (id, payload) => client.post(`/media/${id}/watermark`, payload),
   segment: (id, payload) => client.post(`/media/${id}/segment`, payload),
   removeObject: (id, mask_id) => client.post(`/media/${id}/remove-object`, { mask_id }),
   remove: (id) => client.delete(`/media/${id}`),
