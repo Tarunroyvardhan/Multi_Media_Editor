@@ -55,6 +55,16 @@ def add_text_overlay_image(
         combined.save(output_path)
 
 
+def denoise_image(input_path: str, output_path: str, strength: float = 10.0) -> None:
+    import cv2
+
+    img = cv2.imread(input_path)
+    if img is None:
+        raise ValueError(f"Could not read image at {input_path}")
+    denoised = cv2.fastNlMeansDenoisingColored(img, None, strength, strength, 7, 21)
+    cv2.imwrite(output_path, denoised)
+
+
 def apply_filter(input_path: str, output_path: str, filter_name: str, intensity: float = 1.0) -> None:
     with Image.open(input_path) as img:
         img = img.convert("RGB")

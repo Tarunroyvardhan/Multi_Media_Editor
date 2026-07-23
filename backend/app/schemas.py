@@ -35,6 +35,7 @@ class MediaOut(BaseModel):
     media_type: MediaType
     original_filename: str
     current_filename: str
+    thumbnail_filename: Optional[str] = None
     created_at: datetime.datetime
 
     class Config:
@@ -87,6 +88,26 @@ class WatermarkRequest(BaseModel):
     font_size: int = 32
     color: str = "#FFFFFF"
     opacity: float = 1.0
+
+
+class VersionOut(BaseModel):
+    id: int
+    filename: str
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+
+class GifExportRequest(BaseModel):
+    fps: int = 10
+    width: int = 480
+    start_seconds: float = 0.0
+    duration_seconds: Optional[float] = None
+
+
+class DenoiseRequest(BaseModel):
+    strength: float = 10.0
 
 
 class SegmentRequest(BaseModel):

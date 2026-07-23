@@ -141,3 +141,69 @@ def add_text_overlay_video(
 
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", drawtext, "-c:a", "copy", output_path]
     subprocess.run(cmd, check=True, capture_output=True)
+
+
+def apply_video_filter(input_path: str, output_path: str, filter_name: str, intensity: float = 1.0) -> None:
+    """Video equivalent of image_utils.apply_filter, using ffmpeg filters."""
+    if filter_name == "grayscale":
+        vf = "hue=s=0"
+    elif filter_name == "sepia":
+        vf = "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131"
+    elif filter_name == "blur":
+        radius = max(1, int(intensity * 5))
+        vf = f"boxblur={radius}:1"
+    elif filter_name == "brightness":
+        # ffmpeg's eq brightness ranges roughly -1..1; intensity 1.0 means
+        # "no change" to match the photo filter's convention.
+        vf = f"eq=brightness={(intensity - 1) * 0.5}"
+    elif filter_name == "contrast":
+        vf = f"eq=contrast={intensity}"
+    elif filter_name == "saturation":
+        vf = f"eq=saturation={intensity}"
+    elif filter_name == "sharpen":
+        vf = f"unsharp=5:5:{intensity}:5:5:0"
+    else:
+        raise ValueError(f"Unknown filter: {filter_name}")
+
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def generate_thumbnail(input_path: str, output_path: str, time_seconds: float = 0.5) -> None:
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(time_seconds),
+        "-i", input_path,
+        "-vframes", "1",
+        "-update", "1",
+        "-q:v", "3",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def export_gif(
+    input_path: str,
+    output_path: str,
+    fps: int = 10,
+    width: int = 480,
+    start: float = 0.0,
+    duration: float = None,
+) -> None:
+    """Two-pass palette generation for much better GIF color quality than a
+    naive single-pass conversion."""
+    trim_args = []
+    if start:
+        trim_args += ["-ss", str(start)]
+    if duration:
+        trim_args += ["-t", str(duration)]
+
+    vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
+    cmd = ["ffmpeg", "-y"] + trim_args + ["-i", input_path, "-vf", vf, output_path]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def denoise_video(input_path: str, output_path: str, strength: float = 4.0) -> None:
+    vf = f"hqdn3d={strength}:{strength}:{strength * 0.5}:{strength * 0.5}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path]
+    subprocess.run(cmd, check=True, capture_output=True)

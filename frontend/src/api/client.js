@@ -53,6 +53,14 @@ export const mediaApi = {
   videoSegment: (id, payload) => client.post(`/media/${id}/video-segment`, payload),
   videoRemoveObject: (id, mask_id) => client.post(`/media/${id}/video-remove-object`, { mask_id }),
   videoRemoveObjectJob: (id, jobId) => client.get(`/media/${id}/video-remove-object/jobs/${jobId}`),
+  thumbnailUrl: (id) => {
+    const token = localStorage.getItem('token')
+    return `${API_BASE_URL}/media/${id}/thumbnail?token=${encodeURIComponent(token)}`
+  },
+  versions: (id) => client.get(`/media/${id}/versions`),
+  restoreVersion: (id, versionId) => client.post(`/media/${id}/versions/${versionId}/restore`),
+  exportGif: (id, payload) => client.post(`/media/${id}/export-gif`, payload, { responseType: 'blob' }),
+  denoise: (id, strength) => client.post(`/media/${id}/denoise`, { strength }),
 }
 
 export default client

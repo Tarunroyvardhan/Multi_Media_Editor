@@ -101,9 +101,11 @@ export default function Dashboard() {
                     {f.media_type === 'video' ? <Film size={11} /> : <ImageIcon size={11} />}
                   </span>
                   {f.media_type === 'photo' ? (
-                    <img src={mediaApi.fileUrl(f.id)} alt={f.original_filename} />
+                    <img src={mediaApi.fileUrl(f.id, f.current_filename)} alt={f.original_filename} />
+                  ) : f.thumbnail_filename ? (
+                    <img src={mediaApi.thumbnailUrl(f.id)} alt={f.original_filename} />
                   ) : (
-                    <video src={mediaApi.fileUrl(f.id)} muted />
+                    <video src={mediaApi.fileUrl(f.id, f.current_filename)} muted />
                   )}
                 </div>
                 <div className="project-meta">

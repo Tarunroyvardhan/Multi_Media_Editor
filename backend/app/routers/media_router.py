@@ -10,24 +10,31 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_from_query
 from app.config import settings
 from app.database import get_db
-from app.models import MediaFile, MediaType, User
+from app.models import MediaFile, MediaType, MediaVersion, User
 from app.schemas import (
     CropRequest,
+    DenoiseRequest,
     FilterRequest,
     FlipRequest,
+    GifExportRequest,
     MediaOut,
     ResizeRequest,
     RotateRequest,
     SpeedRequest,
     TrimRequest,
+    VersionOut,
     VolumeRequest,
     WatermarkRequest,
 )
 from app.utils.ffmpeg_utils import (
     add_text_overlay_video,
+    apply_video_filter,
     change_speed_video,
     crop_video,
+    denoise_video,
+    export_gif,
     flip_video,
+    generate_thumbnail,
     resize_video,
     rotate_video,
     set_volume_video,
@@ -37,6 +44,7 @@ from app.utils.image_utils import (
     add_text_overlay_image,
     apply_filter,
     crop_image,
+    denoise_image,
     flip_image,
     resize_image,
     rotate_image,
@@ -87,6 +95,16 @@ def upload_media(
         stored_filename=stored_name,
         current_filename=stored_name,
     )
+
+    if media_type == MediaType.video:
+        thumbnail_name = f"{uuid.uuid4().hex}.jpg"
+        thumbnail_path = os.path.join(settings.processed_dir, thumbnail_name)
+        try:
+            generate_thumbnail(stored_path, thumbnail_path)
+            media.thumbnail_filename = thumbnail_name
+        except Exception:
+            pass  # thumbnail is a nice-to-have; don't fail the whole upload over it
+
     db.add(media)
     db.commit()
     db.refresh(media)
@@ -341,15 +359,122 @@ def filter_media(
     current_user: User = Depends(get_current_user),
 ):
     media = _get_owned_media(media_id, db, current_user)
-    if media.media_type != MediaType.photo:
-        raise HTTPException(status_code=400, detail="Filters currently apply to photos only")
-
     input_path = _resolve_current_path(media)
     ext = os.path.splitext(media.stored_filename)[1]
     output_name = f"{uuid.uuid4().hex}{ext}"
     output_path = os.path.join(settings.processed_dir, output_name)
 
-    apply_filter(input_path, output_path, payload.filter_name, payload.intensity)
+    try:
+        if media.media_type == MediaType.video:
+            apply_video_filter(input_path, output_path, payload.filter_name, payload.intensity)
+        else:
+            apply_filter(input_path, output_path, payload.filter_name, payload.intensity)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    media.current_filename = output_name
+    db.commit()
+    db.refresh(media)
+    return media
+
+
+@router.get("/{media_id}/thumbnail")
+def get_thumbnail(
+    media_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_query),
+):
+    media = _get_owned_media(media_id, db, current_user)
+    if not media.thumbnail_filename:
+        raise HTTPException(status_code=404, detail="No thumbnail available for this file")
+    path = os.path.join(settings.processed_dir, media.thumbnail_filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Thumbnail file missing on disk")
+    return FileResponse(path, headers={"Cache-Control": "no-store, must-revalidate"})
+
+
+@router.get("/{media_id}/versions", response_model=List[VersionOut])
+def list_versions(
+    media_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = _get_owned_media(media_id, db, current_user)
+    return (
+        db.query(MediaVersion)
+        .filter(MediaVersion.media_id == media.id)
+        .order_by(MediaVersion.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/{media_id}/versions/{version_id}/restore", response_model=MediaOut)
+def restore_version(
+    media_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = _get_owned_media(media_id, db, current_user)
+    version = (
+        db.query(MediaVersion)
+        .filter(MediaVersion.id == version_id, MediaVersion.media_id == media.id)
+        .first()
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    media.current_filename = version.filename  # records the current state as a new version too
+    db.commit()
+    db.refresh(media)
+    return media
+
+
+@router.post("/{media_id}/export-gif")
+def export_gif_media(
+    media_id: int,
+    payload: GifExportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = _get_owned_media(media_id, db, current_user)
+    if media.media_type != MediaType.video:
+        raise HTTPException(status_code=400, detail="GIF export only applies to video files")
+
+    input_path = _resolve_current_path(media)
+    output_name = f"{uuid.uuid4().hex}.gif"
+    output_path = os.path.join(settings.processed_dir, output_name)
+
+    export_gif(
+        input_path, output_path,
+        fps=payload.fps, width=payload.width,
+        start=payload.start_seconds, duration=payload.duration_seconds,
+    )
+
+    return FileResponse(
+        output_path,
+        media_type="image/gif",
+        filename=f"{os.path.splitext(media.original_filename)[0]}.gif",
+    )
+
+
+@router.post("/{media_id}/denoise", response_model=MediaOut)
+def denoise_media(
+    media_id: int,
+    payload: DenoiseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    media = _get_owned_media(media_id, db, current_user)
+    input_path = _resolve_current_path(media)
+    ext = os.path.splitext(media.stored_filename)[1]
+    output_name = f"{uuid.uuid4().hex}{ext}"
+    output_path = os.path.join(settings.processed_dir, output_name)
+
+    if media.media_type == MediaType.video:
+        denoise_video(input_path, output_path, payload.strength)
+    else:
+        denoise_image(input_path, output_path, payload.strength)
 
     media.current_filename = output_name
     db.commit()

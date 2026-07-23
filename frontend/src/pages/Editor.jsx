@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2, RotateCw, FlipHorizontal2, FlipVertical2, Maximize2, Gauge, Volume2, VolumeX, Type } from 'lucide-react'
+import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2, RotateCw, FlipHorizontal2, FlipVertical2, Maximize2, Gauge, Volume2, VolumeX, Type, History, Sparkles, Ratio, FileImage } from 'lucide-react'
 import TopBar from '../components/TopBar'
 import { mediaApi } from '../api/client'
 
@@ -62,6 +62,20 @@ export default function Editor() {
   const [watermarkFontSize, setWatermarkFontSize] = useState(32)
   const [watermarkColor, setWatermarkColor] = useState('#FFFFFF')
 
+  // denoise
+  const [denoiseStrength, setDenoiseStrength] = useState(10)
+
+  // version history
+  const [versions, setVersions] = useState([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+
+  // gif export
+  const [gifExporting, setGifExporting] = useState(false)
+
+  // aspect ratio presets — needs the media's natural dimensions
+  const [mediaWidth, setMediaWidth] = useState(0)
+  const [mediaHeight, setMediaHeight] = useState(0)
+
   // remove object
   const frameRef = useRef(null)
   const imgRef = useRef(null)
@@ -106,6 +120,8 @@ export default function Editor() {
     const d = e.target.duration || 0
     setDuration(d)
     setEnd(d)
+    setMediaWidth(e.target.videoWidth || 0)
+    setMediaHeight(e.target.videoHeight || 0)
   }
 
   const measureImgBox = () => {
@@ -250,6 +266,67 @@ export default function Editor() {
     }
   }
 
+  const applyAspectRatio = (ratioW, ratioH) => {
+    if (!mediaWidth || !mediaHeight) return
+    const targetRatio = ratioW / ratioH
+    const currentRatio = mediaWidth / mediaHeight
+    let w, h
+    if (currentRatio > targetRatio) {
+      h = mediaHeight
+      w = Math.round(h * targetRatio)
+    } else {
+      w = mediaWidth
+      h = Math.round(w / targetRatio)
+    }
+    setX(Math.round((mediaWidth - w) / 2))
+    setY(Math.round((mediaHeight - h) / 2))
+    setWidth(w)
+    setHeight(h)
+  }
+
+  const loadVersions = async () => {
+    setVersionsLoading(true)
+    try {
+      const res = await mediaApi.versions(media.id)
+      setVersions(res.data)
+    } catch (err) {
+      setError('Could not load version history')
+    } finally {
+      setVersionsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tool === 'history' && media) loadVersions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, media?.id])
+
+  const applyRestore = (versionId) =>
+    runAction(async () => {
+      await mediaApi.restoreVersion(media.id, versionId)
+      await loadVersions()
+    })
+
+  const applyGifExport = async () => {
+    setGifExporting(true)
+    setError('')
+    try {
+      const res = await mediaApi.exportGif(media.id, { fps: 10, width: 480 })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${media.original_filename.replace(/\.[^.]+$/, '')}.gif`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError('GIF export failed')
+    } finally {
+      setGifExporting(false)
+    }
+  }
+
   const startDrag = (handle) => (e) => {
     e.preventDefault()
     draggingRef.current = handle
@@ -299,15 +376,27 @@ export default function Editor() {
             </button>
             <span className="project-name">{media.original_filename}</span>
           </div>
-          <a
-            href={mediaApi.fileUrl(media.id, media.current_filename)}
-            download
-            className="btn btn-primary"
-            style={videoProcessing ? { pointerEvents: 'none', opacity: 0.5 } : undefined}
-          >
-            <Download size={15} />
-            Export
-          </a>
+          <div style={{ display: 'flex', gap: '0.6rem' }}>
+            {media.media_type === 'video' && (
+              <button
+                className="btn btn-ghost"
+                disabled={videoProcessing || gifExporting}
+                onClick={applyGifExport}
+              >
+                {gifExporting ? <Loader2 size={15} className="spin" /> : <FileImage size={15} />}
+                {gifExporting ? 'Exporting…' : 'Export GIF'}
+              </button>
+            )}
+            <a
+              href={mediaApi.fileUrl(media.id, media.current_filename)}
+              download
+              className="btn btn-primary"
+              style={videoProcessing ? { pointerEvents: 'none', opacity: 0.5 } : undefined}
+            >
+              <Download size={15} />
+              Export
+            </a>
+          </div>
         </div>
 
         <div className="editor-body">
@@ -370,15 +459,34 @@ export default function Editor() {
                 Watermark
               </button>
             )}
-            {media.media_type === 'photo' && (
+            {(media.media_type === 'photo' || media.media_type === 'video') && (
               <button
                 className={`tool-btn ${tool === 'filter' ? 'active' : ''}`}
                 onClick={() => setTool('filter')}
+                disabled={videoProcessing}
               >
                 <span className="icon"><SlidersHorizontal size={18} /></span>
                 Filters
               </button>
             )}
+            {(media.media_type === 'photo' || media.media_type === 'video') && (
+              <button
+                className={`tool-btn ${tool === 'denoise' ? 'active' : ''}`}
+                onClick={() => setTool('denoise')}
+                disabled={videoProcessing}
+              >
+                <span className="icon"><Sparkles size={18} /></span>
+                Denoise
+              </button>
+            )}
+            <button
+              className={`tool-btn ${tool === 'history' ? 'active' : ''}`}
+              onClick={() => setTool('history')}
+              disabled={videoProcessing}
+            >
+              <span className="icon"><History size={18} /></span>
+              History
+            </button>
           </div>
 
           <div className="preview-pane">
@@ -389,7 +497,11 @@ export default function Editor() {
                   key={media.current_filename}
                   src={mediaApi.fileUrl(media.id, media.current_filename)}
                   alt={media.original_filename}
-                  onLoad={measureImgBox}
+                  onLoad={(e) => {
+                    measureImgBox()
+                    setMediaWidth(e.target.naturalWidth)
+                    setMediaHeight(e.target.naturalHeight)
+                  }}
                   draggable={false}
                 />
               ) : tool === 'remove' ? (
@@ -485,6 +597,15 @@ export default function Editor() {
             {tool === 'crop' && (
               <>
                 <h4>Crop</h4>
+                <p className="hint-text">
+                  <Ratio size={13} style={{ verticalAlign: 'text-bottom', marginRight: '0.3rem' }} />
+                  Quick ratios
+                </p>
+                <div className="mode-toggle">
+                  <button className="btn btn-ghost" onClick={() => applyAspectRatio(1, 1)}>1:1</button>
+                  <button className="btn btn-ghost" onClick={() => applyAspectRatio(16, 9)}>16:9</button>
+                  <button className="btn btn-ghost" onClick={() => applyAspectRatio(9, 16)}>9:16</button>
+                </div>
                 <div className="field-row">
                   <div className="field-group">
                     <label>X <span className="val">{x}</span></label>
@@ -784,7 +905,67 @@ export default function Editor() {
               </>
             )}
 
-            {tool === 'filter' && media.media_type === 'photo' && (
+            {tool === 'denoise' && (
+              <>
+                <h4>Denoise</h4>
+                <p className="hint-text">
+                  Reduces grain/noise. Higher strength removes more noise but can soften detail.
+                </p>
+                <div className="field-group">
+                  <label>Strength <span className="val">{denoiseStrength}</span></label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="20"
+                    step="1"
+                    value={denoiseStrength}
+                    onChange={(e) => setDenoiseStrength(Number(e.target.value))}
+                  />
+                </div>
+                <div className="apply-bar">
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    disabled={busy}
+                    onClick={() => runAction(() => mediaApi.denoise(media.id, denoiseStrength))}
+                  >
+                    {busy && <Loader2 size={15} className="spin" />}
+                    <Sparkles size={15} />
+                    Apply denoise
+                  </button>
+                </div>
+              </>
+            )}
+
+            {tool === 'history' && (
+              <>
+                <h4>Version history</h4>
+                <p className="hint-text">Every edit is saved — restore any earlier version.</p>
+                {versionsLoading && <p className="hint-text">Loading…</p>}
+                {!versionsLoading && versions.length === 0 && (
+                  <p className="hint-text">No previous versions yet — make an edit first.</p>
+                )}
+                {!versionsLoading &&
+                  versions.map((v) => (
+                    <div className="card" key={v.id} style={{ padding: '0.75rem', marginBottom: '0.6rem' }}>
+                      <p className="hint-text" style={{ marginBottom: '0.5rem' }}>
+                        {new Date(v.created_at).toLocaleString()}
+                      </p>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                        disabled={busy}
+                        onClick={() => applyRestore(v.id)}
+                      >
+                        {busy && <Loader2 size={15} className="spin" />}
+                        Restore this version
+                      </button>
+                    </div>
+                  ))}
+              </>
+            )}
+
+            {tool === 'filter' && (media.media_type === 'photo' || media.media_type === 'video') && (
               <>
                 <h4>Filters</h4>
                 <div className="filter-swatches">
