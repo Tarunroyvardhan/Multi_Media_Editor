@@ -63,4 +63,23 @@ export const mediaApi = {
   denoise: (id, strength) => client.post(`/media/${id}/denoise`, { strength }),
 }
 
+export const projectApi = {
+  list: () => client.get('/projects'),
+  create: (name) => client.post('/projects', { name }),
+  get: (id) => client.get(`/projects/${id}`),
+  remove: (id) => client.delete(`/projects/${id}`),
+  addClip: (projectId, payload) => client.post(`/projects/${projectId}/clips`, payload),
+  updateClip: (projectId, clipId, payload) => client.put(`/projects/${projectId}/clips/${clipId}`, payload),
+  removeClip: (projectId, clipId) => client.delete(`/projects/${projectId}/clips/${clipId}`),
+  reorder: (projectId, clipIds) => client.put(`/projects/${projectId}/clips/reorder/apply`, { clip_ids: clipIds }),
+  setMusic: (projectId, mediaId, volume) => client.post(`/projects/${projectId}/music`, { media_id: mediaId, volume }),
+  removeMusic: (projectId) => client.delete(`/projects/${projectId}/music`),
+  render: (projectId) => client.post(`/projects/${projectId}/render`),
+  renderStatus: (jobId) => client.get(`/projects/render-status/${jobId}`),
+  downloadUrl: (projectId) => {
+    const token = localStorage.getItem('token')
+    return `${API_BASE_URL}/projects/${projectId}/download?token=${encodeURIComponent(token)}`
+  },
+}
+
 export default client

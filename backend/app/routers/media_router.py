@@ -54,6 +54,7 @@ router = APIRouter(prefix="/media", tags=["media"])
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
 
 
 def _detect_media_type(filename: str) -> MediaType:
@@ -62,6 +63,8 @@ def _detect_media_type(filename: str) -> MediaType:
         return MediaType.video
     if ext in IMAGE_EXTENSIONS:
         return MediaType.photo
+    if ext in AUDIO_EXTENSIONS:
+        return MediaType.audio
     raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
 

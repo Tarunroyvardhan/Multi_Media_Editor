@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, Film, Image as ImageIcon, Pencil, Trash2, FolderOpen } from 'lucide-react'
+import { Upload, Film, Image as ImageIcon, Pencil, Trash2, FolderOpen, Clapperboard } from 'lucide-react'
 import TopBar from '../components/TopBar'
-import { mediaApi } from '../api/client'
+import { mediaApi, projectApi } from '../api/client'
 
 function formatDate(iso) {
   const d = new Date(iso)
@@ -34,20 +34,39 @@ export default function Dashboard() {
   }, [])
 
   const handleFileChosen = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
+    const chosenFiles = Array.from(e.target.files || [])
+    if (chosenFiles.length === 0) return
     setUploading(true)
     setError('')
     try {
-      const res = await mediaApi.upload(file)
+      let lastId = null
+      for (const file of chosenFiles) {
+        const res = await mediaApi.upload(file)
+        lastId = res.data.id
+      }
       await loadFiles()
       setModalOpen(false)
-      navigate(`/editor/${res.data.id}`)
+      // Single file: jump straight into the editor. Multiple files: stay on
+      // the dashboard so the person can see everything land in the grid,
+      // then send them into a timeline project instead.
+      if (chosenFiles.length === 1) {
+        navigate(`/editor/${lastId}`)
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Upload failed')
     } finally {
       setUploading(false)
       e.target.value = ''
+    }
+  }
+
+  const handleNewProject = async () => {
+    setError('')
+    try {
+      const res = await projectApi.create('Untitled project')
+      navigate(`/timeline/${res.data.id}`)
+    } catch (err) {
+      setError('Could not create a new project')
     }
   }
 
@@ -61,10 +80,16 @@ export default function Dashboard() {
     <div className="app-shell">
       <TopBar
         right={
-          <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
-            <Upload size={16} />
-            Upload &amp; edit
-          </button>
+          <div style={{ display: 'flex', gap: '0.6rem' }}>
+            <button className="btn btn-ghost" onClick={handleNewProject}>
+              <Clapperboard size={16} />
+              New timeline project
+            </button>
+            <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+              <Upload size={16} />
+              Upload &amp; edit
+            </button>
+          </div>
         }
       />
 
@@ -130,14 +155,15 @@ export default function Dashboard() {
       {modalOpen && (
         <div className="modal-overlay" onClick={() => !uploading && setModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Upload a file</h3>
-            <p className="sub">Photos and videos are both supported.</p>
+            <h3>Upload files</h3>
+            <p className="sub">Photos and videos are both supported — select more than one to add them all at once.</p>
             <div className="dropzone" onClick={() => fileInputRef.current?.click()}>
-              {uploading ? 'Uploading…' : 'Click to choose a photo or video'}
+              {uploading ? 'Uploading…' : 'Click to choose photos or videos'}
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*,video/*"
+                multiple
                 onChange={handleFileChosen}
                 style={{ display: 'none' }}
                 disabled={uploading}

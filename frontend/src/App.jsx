@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Editor from './pages/Editor'
+import Timeline from './pages/Timeline'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -36,6 +37,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <Editor />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/timeline/:id"
+        element={
+          <PrivateRoute>
+            <Timeline />
           </PrivateRoute>
         }
       />

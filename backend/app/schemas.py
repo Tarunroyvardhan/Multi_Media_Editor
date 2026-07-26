@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr
 
-from app.models import MediaType
+from app.models import MediaType, TransitionType
 
 
 class UserCreate(BaseModel):
@@ -142,3 +142,59 @@ class JobStatus(BaseModel):
     status: str  # pending | processing | done | failed
     progress: float
     error: Optional[str] = None
+
+
+# ---- Projects / timeline ----
+
+class ProjectClipIn(BaseModel):
+    media_id: int
+    trim_start: Optional[int] = 0
+    trim_end: Optional[int] = None
+    photo_duration_seconds: Optional[int] = 3
+    transition_out: Optional[TransitionType] = TransitionType.none
+    transition_duration: Optional[int] = 1
+
+
+class ProjectClipOut(BaseModel):
+    id: int
+    media_id: int
+    position: int
+    trim_start: int
+    trim_end: Optional[int] = None
+    photo_duration_seconds: int
+    transition_out: TransitionType
+    transition_duration: int
+    media: MediaOut
+
+    class Config:
+        from_attributes = True
+
+
+class ProjectCreate(BaseModel):
+    name: Optional[str] = "Untitled project"
+
+
+class ProjectOut(BaseModel):
+    id: int
+    name: str
+    music_media_id: Optional[int] = None
+    music_volume: int
+    rendered_filename: Optional[str] = None
+    created_at: datetime.datetime
+    clips: List[ProjectClipOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ReorderRequest(BaseModel):
+    clip_ids: List[int]  # full list of this project's clip IDs, in desired order
+
+
+class MusicRequest(BaseModel):
+    media_id: int
+    volume: Optional[int] = 100
+
+
+class RenderJobOut(BaseModel):
+    job_id: str

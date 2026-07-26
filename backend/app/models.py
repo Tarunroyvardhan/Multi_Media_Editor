@@ -11,6 +11,23 @@ from app.database import Base
 class MediaType(str, enum.Enum):
     photo = "photo"
     video = "video"
+    audio = "audio"
+
+
+class TransitionType(str, enum.Enum):
+    """Transition applied between this clip and the NEXT one in a project's
+    timeline. 'none' is a hard cut. The rest map directly to ffmpeg's xfade
+    filter's built-in transition names."""
+    none = "none"
+    fade = "fade"
+    fadeblack = "fadeblack"
+    wipeleft = "wipeleft"
+    wiperight = "wiperight"
+    slideup = "slideup"
+    slidedown = "slidedown"
+    circleopen = "circleopen"
+    circleclose = "circleclose"
+    dissolve = "dissolve"
 
 
 class User(Base):
@@ -68,3 +85,43 @@ def _record_version_on_change(target, value, oldvalue, initiator):
     if session is None or target.id is None:
         return
     session.add(MediaVersion(media_id=target.id, filename=oldvalue))
+
+
+class Project(Base):
+    """A CapCut-style timeline: an ordered sequence of clips (photos and/or
+    videos) with transitions between them, plus an optional background
+    music track. Rendering combines everything into one output MediaFile-
+    style video on disk."""
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False, default="Untitled project")
+    music_media_id = Column(Integer, ForeignKey("media_files.id"), nullable=True)
+    music_volume = Column(Integer, nullable=False, default=100)  # percent, 0-200
+    rendered_filename = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    owner = relationship("User")
+    music = relationship("MediaFile", foreign_keys=[music_media_id])
+    clips = relationship(
+        "ProjectClip", back_populates="project", cascade="all, delete-orphan",
+        order_by="ProjectClip.position",
+    )
+
+
+class ProjectClip(Base):
+    __tablename__ = "project_clips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    media_id = Column(Integer, ForeignKey("media_files.id"), nullable=False)
+    position = Column(Integer, nullable=False)  # 0-based order in the timeline
+    trim_start = Column(Integer, nullable=False, default=0)  # seconds; video clips only
+    trim_end = Column(Integer, nullable=True)  # seconds; null = to end of video
+    photo_duration_seconds = Column(Integer, nullable=False, default=3)  # photos only
+    transition_out = Column(Enum(TransitionType), nullable=False, default=TransitionType.none)
+    transition_duration = Column(Integer, nullable=False, default=1)  # seconds
+
+    project = relationship("Project", back_populates="clips")
+    media = relationship("MediaFile")
