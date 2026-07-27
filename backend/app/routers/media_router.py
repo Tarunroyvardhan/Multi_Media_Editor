@@ -35,6 +35,7 @@ from app.utils.ffmpeg_utils import (
     export_gif,
     flip_video,
     generate_thumbnail,
+    probe_duration,
     resize_video,
     rotate_video,
     set_volume_video,
@@ -107,6 +108,12 @@ def upload_media(
             media.thumbnail_filename = thumbnail_name
         except Exception:
             pass  # thumbnail is a nice-to-have; don't fail the whole upload over it
+
+    if media_type in (MediaType.video, MediaType.audio):
+        try:
+            media.duration_seconds = probe_duration(stored_path)
+        except Exception:
+            pass  # duration gets probed lazily later if this fails (e.g. ffmpeg not on PATH yet)
 
     db.add(media)
     db.commit()

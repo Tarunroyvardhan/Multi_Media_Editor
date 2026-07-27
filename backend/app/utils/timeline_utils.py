@@ -14,8 +14,14 @@ Approach:
 """
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+
+from app.config import settings
+
+FFMPEG = settings.ffmpeg_path
+FFPROBE = settings.ffprobe_path
 
 WIDTH = 1280
 HEIGHT = 720
@@ -25,7 +31,7 @@ MIN_TRANSITION = 0.05  # ffmpeg's xfade misbehaves at exactly 0
 
 def _probe_duration(path: str) -> float:
     cmd = [
-        "ffprobe", "-v", "error",
+        FFPROBE, "-v", "error",
         "-show_entries", "format=duration",
         "-of", "json",
         path,
@@ -37,7 +43,7 @@ def _probe_duration(path: str) -> float:
 
 def _has_audio_stream(path: str) -> bool:
     cmd = [
-        "ffprobe", "-v", "error",
+        FFPROBE, "-v", "error",
         "-select_streams", "a",
         "-show_entries", "stream=index",
         "-of", "csv=p=0",
@@ -47,29 +53,54 @@ def _has_audio_stream(path: str) -> bool:
     return bool(result.stdout.strip())
 
 
-def _normalize_video_clip(input_path: str, output_path: str, trim_start: float, trim_end: float | None) -> None:
+def _atempo_chain(factor: float) -> str:
+    """ffmpeg's atempo filter only accepts 0.5-2.0 per instance, so factors
+    outside that range need to be chained across multiple atempo steps."""
+    filters = []
+    remaining = factor
+    while remaining > 2.0:
+        filters.append("atempo=2.0")
+        remaining /= 2.0
+    while remaining < 0.5:
+        filters.append("atempo=0.5")
+        remaining /= 0.5
+    filters.append(f"atempo={remaining}")
+    return ",".join(filters)
+
+
+def _normalize_video_clip(
+    input_path: str, output_path: str, trim_start: float, trim_end: float | None, speed_factor: float = 1.0,
+) -> None:
     duration_args = []
     if trim_start:
         duration_args += ["-ss", str(trim_start)]
     if trim_end is not None:
         duration_args += ["-t", str(max(0.1, trim_end - trim_start))]
 
-    vf = (
-        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,"
-        f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={FPS}"
-    )
+    vf_parts = [
+        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease",
+        f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
+        "setsar=1",
+    ]
+    if speed_factor and speed_factor != 1.0:
+        vf_parts.append(f"setpts={1 / speed_factor}*PTS")
+    vf_parts.append(f"fps={FPS}")
+    vf = ",".join(vf_parts)
+
+    af = _atempo_chain(speed_factor) if speed_factor and speed_factor != 1.0 else None
 
     has_audio = _has_audio_stream(input_path)
     if has_audio:
         cmd = [
-            "ffmpeg", "-y", *duration_args, "-i", input_path,
+            FFMPEG, "-y", *duration_args, "-i", input_path,
             "-vf", vf,
-            "-c:v", "libx264", "-c:a", "aac", "-ar", "44100", "-ac", "2",
-            output_path,
         ]
+        if af:
+            cmd += ["-af", af]
+        cmd += ["-c:v", "libx264", "-c:a", "aac", "-ar", "44100", "-ac", "2", output_path]
     else:
         cmd = [
-            "ffmpeg", "-y", *duration_args, "-i", input_path,
+            FFMPEG, "-y", *duration_args, "-i", input_path,
             "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
             "-vf", vf,
             "-c:v", "libx264", "-c:a", "aac",
@@ -85,7 +116,7 @@ def _normalize_photo_clip(input_path: str, output_path: str, duration_seconds: f
         f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={FPS}"
     )
     cmd = [
-        "ffmpeg", "-y",
+        FFMPEG, "-y",
         "-loop", "1", "-i", input_path,
         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
         "-vf", vf,
@@ -106,7 +137,7 @@ def _mix_music(video_path: str, music_path: str, output_path: str, volume_percen
         f"[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]"
     )
     cmd = [
-        "ffmpeg", "-y",
+        FFMPEG, "-y",
         "-i", video_path,
         "-i", music_path,
         "-filter_complex", filter_complex,
@@ -136,6 +167,14 @@ def render_timeline(
     if not clips:
         raise ValueError("A project needs at least one clip to render")
 
+    if shutil.which(FFMPEG) is None or shutil.which(FFPROBE) is None:
+        raise RuntimeError(
+            "ffmpeg/ffprobe were not found (looked for '" + FFMPEG + "' and '" + FFPROBE + "'). "
+            "If they're installed but this keeps failing, PATH probably hasn't propagated to this "
+            "process yet — fully close and reopen your terminal (and IDE, if it spawned the terminal), "
+            "or set FFMPEG_PATH and FFPROBE_PATH to the full .exe paths in backend/.env instead."
+        )
+
     with tempfile.TemporaryDirectory() as tmp:
         normalized_paths = []
         for i, clip in enumerate(clips):
@@ -143,7 +182,10 @@ def render_timeline(
             if clip["is_photo"]:
                 _normalize_photo_clip(clip["source_path"], norm_path, clip["photo_duration"])
             else:
-                _normalize_video_clip(clip["source_path"], norm_path, clip.get("trim_start") or 0, clip.get("trim_end"))
+                _normalize_video_clip(
+                    clip["source_path"], norm_path, clip.get("trim_start") or 0, clip.get("trim_end"),
+                    clip.get("speed_factor") or 1.0,
+                )
             normalized_paths.append(norm_path)
             if progress_cb:
                 progress_cb(0.1 + 0.5 * (i + 1) / len(clips))
@@ -161,7 +203,7 @@ def render_timeline(
             _mix_music(combined_path, music_path, output_path, music_volume)
         else:
             if combined_path != output_path:
-                subprocess.run(["ffmpeg", "-y", "-i", combined_path, "-c", "copy", output_path], check=True, capture_output=True)
+                subprocess.run([FFMPEG, "-y", "-i", combined_path, "-c", "copy", output_path], check=True, capture_output=True)
         if progress_cb:
             progress_cb(1.0)
 
@@ -199,7 +241,7 @@ def _chain_with_transitions(paths: list[str], durations: list[float], clips: lis
 
     filter_complex = ";".join(filter_parts)
     cmd = [
-        "ffmpeg", "-y", *inputs,
+        FFMPEG, "-y", *inputs,
         "-filter_complex", filter_complex,
         "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
         "-c:v", "libx264", "-c:a", "aac",

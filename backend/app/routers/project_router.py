@@ -10,16 +10,20 @@ from app.auth import get_current_user, get_current_user_from_query
 from app.config import settings
 from app.database import get_db
 from app.jobs import create_job, get_job, run_in_background
-from app.models import MediaFile, Project, ProjectClip, User
+from app.models import MediaFile, MediaType, Project, ProjectClip, TransitionType, User
 from app.schemas import (
+    CutOutRequest,
     MusicRequest,
     ProjectClipIn,
+    ProjectClipInsert,
     ProjectCreate,
     ProjectOut,
     ReorderRequest,
     RenderJobOut,
+    SplitClipRequest,
 )
 from app.utils.timeline_utils import render_timeline
+from app.utils.ffmpeg_utils import probe_duration
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -46,6 +50,23 @@ def _resolve_path(media: MediaFile) -> str:
         if os.path.exists(candidate):
             return candidate
     raise HTTPException(status_code=404, detail=f"File for media {media.id} missing on disk")
+
+
+def _concrete_trim_end(media: MediaFile, requested_trim_end, db: Session):
+    """Video clips should always land in the project with a real trim_end —
+    never null — so the timeline's duration math is exact from the start
+    instead of drifting until something else happens to probe it. Uses the
+    duration captured at upload time, probing it now (and saving it back)
+    as a one-time fallback for files uploaded before that existed."""
+    if media.media_type != MediaType.video or requested_trim_end is not None:
+        return requested_trim_end
+    if media.duration_seconds is None:
+        try:
+            media.duration_seconds = probe_duration(_resolve_path(media))
+            db.flush()
+        except Exception:
+            return requested_trim_end
+    return media.duration_seconds
 
 
 @router.post("", response_model=ProjectOut)
@@ -78,7 +99,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db), current_user:
 @router.post("/{project_id}/clips", response_model=ProjectOut)
 def add_clip(project_id: int, body: ProjectClipIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     project = _get_owned_project(project_id, db, current_user)
-    _get_owned_media(body.media_id, db, current_user)  # validates ownership
+    media = _get_owned_media(body.media_id, db, current_user)
 
     next_position = len(project.clips)
     clip = ProjectClip(
@@ -86,10 +107,41 @@ def add_clip(project_id: int, body: ProjectClipIn, db: Session = Depends(get_db)
         media_id=body.media_id,
         position=next_position,
         trim_start=body.trim_start or 0,
-        trim_end=body.trim_end,
+        trim_end=_concrete_trim_end(media, body.trim_end, db),
         photo_duration_seconds=body.photo_duration_seconds or 3,
         transition_out=body.transition_out,
         transition_duration=body.transition_duration or 1,
+        speed_factor=body.speed_factor or 1.0,
+    )
+    db.add(clip)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.post("/{project_id}/clips/insert", response_model=ProjectOut)
+def insert_clip(project_id: int, body: ProjectClipInsert, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Like add_clip, but drops the new clip at a specific position in the
+    timeline instead of always appending to the end — used for "insert
+    between these two clips" from the frontend."""
+    project = _get_owned_project(project_id, db, current_user)
+    media = _get_owned_media(body.media_id, db, current_user)
+
+    position = max(0, min(body.position, len(project.clips)))
+    for c in project.clips:
+        if c.position >= position:
+            c.position += 1
+
+    clip = ProjectClip(
+        project_id=project.id,
+        media_id=body.media_id,
+        position=position,
+        trim_start=body.trim_start or 0,
+        trim_end=_concrete_trim_end(media, body.trim_end, db),
+        photo_duration_seconds=body.photo_duration_seconds or 3,
+        transition_out=body.transition_out,
+        transition_duration=body.transition_duration or 1,
+        speed_factor=body.speed_factor or 1.0,
     )
     db.add(clip)
     db.commit()
@@ -109,6 +161,7 @@ def update_clip(project_id: int, clip_id: int, body: ProjectClipIn, db: Session 
     clip.photo_duration_seconds = body.photo_duration_seconds or 3
     clip.transition_out = body.transition_out
     clip.transition_duration = body.transition_duration or 1
+    clip.speed_factor = body.speed_factor or 1.0
     db.commit()
     db.refresh(project)
     return project
@@ -126,6 +179,107 @@ def remove_clip(project_id: int, clip_id: int, db: Session = Depends(get_db), cu
     remaining = db.query(ProjectClip).filter(ProjectClip.project_id == project.id).order_by(ProjectClip.position).all()
     for i, c in enumerate(remaining):
         c.position = i
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.post("/{project_id}/clips/{clip_id}/split", response_model=ProjectOut)
+def split_clip(project_id: int, clip_id: int, body: SplitClipRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Cuts one video clip into two at split_at_seconds (measured within
+    the clip's current trimmed range, i.e. 0 = the clip's current start).
+    The new second half is inserted immediately after."""
+    project = _get_owned_project(project_id, db, current_user)
+    clip = next((c for c in project.clips if c.id == clip_id), None)
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    if clip.media.media_type.value != "video":
+        raise HTTPException(status_code=400, detail="Only video clips can be split")
+    if clip.trim_end is None:
+        raise HTTPException(status_code=400, detail="Set an explicit trim range on this clip before splitting it")
+
+    local_length = clip.trim_end - clip.trim_start
+    split_at = body.split_at_seconds
+    if split_at <= 0.05 or split_at >= local_length - 0.05:
+        raise HTTPException(status_code=400, detail="Split point must be inside the clip, not at its very start or end")
+
+    split_point_in_source = clip.trim_start + split_at
+
+    for c in project.clips:
+        if c.position > clip.position:
+            c.position += 1
+
+    second_half = ProjectClip(
+        project_id=project.id,
+        media_id=clip.media_id,
+        position=clip.position + 1,
+        trim_start=split_point_in_source,
+        trim_end=clip.trim_end,
+        photo_duration_seconds=clip.photo_duration_seconds,
+        transition_out=clip.transition_out,
+        transition_duration=clip.transition_duration,
+        speed_factor=clip.speed_factor,
+    )
+    clip.trim_end = split_point_in_source
+    clip.transition_out = TransitionType.none  # hard cut between the two new pieces by default
+
+    db.add(second_half)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.post("/{project_id}/clips/{clip_id}/cut-out", response_model=ProjectOut)
+def cut_out_section(project_id: int, clip_id: int, body: CutOutRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Removes the [start_seconds, end_seconds] section from a video clip
+    (measured within its current trimmed range) — a ripple delete. What's
+    left before and after the removed section becomes one or two clips."""
+    project = _get_owned_project(project_id, db, current_user)
+    clip = next((c for c in project.clips if c.id == clip_id), None)
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    if clip.media.media_type.value != "video":
+        raise HTTPException(status_code=400, detail="Only video clips support cutting out a section")
+    if clip.trim_end is None:
+        raise HTTPException(status_code=400, detail="Set an explicit trim range on this clip before cutting a section out")
+
+    local_length = clip.trim_end - clip.trim_start
+    start_local = max(0.0, body.start_seconds)
+    end_local = min(local_length, body.end_seconds)
+    if start_local >= end_local:
+        raise HTTPException(status_code=400, detail="Invalid section — start must be before end")
+
+    keep_before = start_local > 0.05
+    keep_after = end_local < local_length - 0.05
+    if not keep_before and not keep_after:
+        raise HTTPException(status_code=400, detail="That section is the whole clip — delete the clip instead")
+
+    original_trim_start = clip.trim_start
+    original_trim_end = clip.trim_end
+
+    if keep_before and keep_after:
+        for c in project.clips:
+            if c.position > clip.position:
+                c.position += 1
+        after_clip = ProjectClip(
+            project_id=project.id,
+            media_id=clip.media_id,
+            position=clip.position + 1,
+            trim_start=original_trim_start + end_local,
+            trim_end=original_trim_end,
+            photo_duration_seconds=clip.photo_duration_seconds,
+            transition_out=clip.transition_out,
+            transition_duration=clip.transition_duration,
+            speed_factor=clip.speed_factor,
+        )
+        clip.trim_end = original_trim_start + start_local
+        clip.transition_out = TransitionType.none
+        db.add(after_clip)
+    elif keep_before:
+        clip.trim_end = original_trim_start + start_local
+    else:
+        clip.trim_start = original_trim_start + end_local
+
     db.commit()
     db.refresh(project)
     return project
@@ -180,6 +334,7 @@ def _do_render(job_id: str, project_id: int):
                 "photo_duration": clip.photo_duration_seconds,
                 "transition_out": clip.transition_out.value,
                 "transition_duration": clip.transition_duration,
+                "speed_factor": clip.speed_factor,
             })
 
         music_path = None

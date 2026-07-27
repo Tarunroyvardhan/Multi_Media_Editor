@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     video_work_dir: str = "storage/video_work"
     ai_models_dir: str = "ai_models"
     frontend_origin: str = "http://localhost:5173"
+    # If ffmpeg/ffprobe aren't reliably resolving via the system PATH (common
+    # on Windows right after installing, since already-open terminals/apps
+    # don't see PATH updates until restarted), set full paths here instead,
+    # e.g. FFMPEG_PATH=C:\ffmpeg\bin\ffmpeg.exe in your .env file.
+    ffmpeg_path: str = "ffmpeg"
+    ffprobe_path: str = "ffprobe"
 
     class Config:
         env_file = ".env"

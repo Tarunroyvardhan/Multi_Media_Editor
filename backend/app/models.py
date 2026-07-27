@@ -1,7 +1,7 @@
 import datetime
 import enum
 
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, event
+from sqlalchemy import Column, Integer, Float, String, DateTime, Enum, ForeignKey, event
 from sqlalchemy.orm import relationship, object_session
 from sqlalchemy.orm.attributes import NO_VALUE
 
@@ -51,6 +51,7 @@ class MediaFile(Base):
     stored_filename = Column(String, nullable=False)
     current_filename = Column(String, nullable=False)  # points to latest edited version
     thumbnail_filename = Column(String, nullable=True)  # video only; photos are their own thumbnail
+    duration_seconds = Column(Float, nullable=True)  # video/audio only; probed via ffprobe at upload time
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     owner = relationship("User", back_populates="media_files")
@@ -117,11 +118,12 @@ class ProjectClip(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     media_id = Column(Integer, ForeignKey("media_files.id"), nullable=False)
     position = Column(Integer, nullable=False)  # 0-based order in the timeline
-    trim_start = Column(Integer, nullable=False, default=0)  # seconds; video clips only
-    trim_end = Column(Integer, nullable=True)  # seconds; null = to end of video
+    trim_start = Column(Float, nullable=False, default=0)  # seconds; video clips only
+    trim_end = Column(Float, nullable=True)  # seconds; null = to end of video
     photo_duration_seconds = Column(Integer, nullable=False, default=3)  # photos only
     transition_out = Column(Enum(TransitionType), nullable=False, default=TransitionType.none)
-    transition_duration = Column(Integer, nullable=False, default=1)  # seconds
+    transition_duration = Column(Float, nullable=False, default=1)  # seconds
+    speed_factor = Column(Float, nullable=False, default=1.0)  # 1.0 = normal speed; video clips only
 
     project = relationship("Project", back_populates="clips")
     media = relationship("MediaFile")

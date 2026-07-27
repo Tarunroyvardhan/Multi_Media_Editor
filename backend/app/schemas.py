@@ -36,6 +36,7 @@ class MediaOut(BaseModel):
     original_filename: str
     current_filename: str
     thumbnail_filename: Optional[str] = None
+    duration_seconds: Optional[float] = None
     created_at: datetime.datetime
 
     class Config:
@@ -148,26 +149,41 @@ class JobStatus(BaseModel):
 
 class ProjectClipIn(BaseModel):
     media_id: int
-    trim_start: Optional[int] = 0
-    trim_end: Optional[int] = None
+    trim_start: Optional[float] = 0
+    trim_end: Optional[float] = None
     photo_duration_seconds: Optional[int] = 3
     transition_out: Optional[TransitionType] = TransitionType.none
-    transition_duration: Optional[int] = 1
+    transition_duration: Optional[float] = 1
+    speed_factor: Optional[float] = 1.0
+
+
+class ProjectClipInsert(ProjectClipIn):
+    position: int
 
 
 class ProjectClipOut(BaseModel):
     id: int
     media_id: int
     position: int
-    trim_start: int
-    trim_end: Optional[int] = None
+    trim_start: float
+    trim_end: Optional[float] = None
     photo_duration_seconds: int
     transition_out: TransitionType
-    transition_duration: int
+    transition_duration: float
+    speed_factor: float
     media: MediaOut
 
     class Config:
         from_attributes = True
+
+
+class SplitClipRequest(BaseModel):
+    split_at_seconds: float  # position within the clip's current (trimmed) range, not the source file
+
+
+class CutOutRequest(BaseModel):
+    start_seconds: float  # start of the section to remove, within the clip's current (trimmed) range
+    end_seconds: float
 
 
 class ProjectCreate(BaseModel):

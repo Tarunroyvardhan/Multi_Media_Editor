@@ -15,15 +15,24 @@ def _run_startup_migrations():
     after someone already has a database file needs a manual ALTER TABLE
     here. This project has no migration framework (Alembic etc.) since
     it's a small dev app, so this lightweight check is the pragmatic
-    equivalent for the one column that's been added so far."""
+    equivalent for the columns that have been added so far."""
     inspector = inspect(engine)
-    if "media_files" not in inspector.get_table_names():
-        return
-    columns = [c["name"] for c in inspector.get_columns("media_files")]
-    if "thumbnail_filename" not in columns:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE media_files ADD COLUMN thumbnail_filename VARCHAR"))
-            conn.commit()
+    if "media_files" in inspector.get_table_names():
+        columns = [c["name"] for c in inspector.get_columns("media_files")]
+        if "thumbnail_filename" not in columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE media_files ADD COLUMN thumbnail_filename VARCHAR"))
+                conn.commit()
+        if "duration_seconds" not in columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE media_files ADD COLUMN duration_seconds FLOAT"))
+                conn.commit()
+    if "project_clips" in inspector.get_table_names():
+        columns = [c["name"] for c in inspector.get_columns("project_clips")]
+        if "speed_factor" not in columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE project_clips ADD COLUMN speed_factor FLOAT DEFAULT 1.0"))
+                conn.commit()
 
 
 _run_startup_migrations()
