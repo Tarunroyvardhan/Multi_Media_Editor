@@ -83,7 +83,7 @@ export default function Dashboard() {
           <div style={{ display: 'flex', gap: '0.6rem' }}>
             <button className="btn btn-ghost" onClick={handleNewProject}>
               <Clapperboard size={16} />
-              New timeline project
+              Merge Video
             </button>
             <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
               <Upload size={16} />
