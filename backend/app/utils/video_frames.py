@@ -7,11 +7,16 @@ import os
 import subprocess
 from typing import Tuple
 
+from app.config import settings
+
+FFMPEG = settings.ffmpeg_path
+FFPROBE = settings.ffprobe_path
+
 
 def get_video_info(video_path: str) -> Tuple[float, int]:
     """Returns (fps, frame_count) using ffprobe."""
     cmd = [
-        "ffprobe", "-v", "error",
+        FFPROBE, "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=r_frame_rate,nb_frames",
         "-of", "json",
@@ -27,7 +32,7 @@ def get_video_info(video_path: str) -> Tuple[float, int]:
     frame_count = stream.get("nb_frames")
     if frame_count is None or frame_count == "N/A":
         cmd2 = [
-            "ffprobe", "-v", "error",
+            FFPROBE, "-v", "error",
             "-show_entries", "format=duration",
             "-of", "json",
             video_path,
@@ -58,7 +63,7 @@ def extract_frames(video_path: str, frames_dir: str, max_dimension: int = 384, f
 
     scale_filter = f"scale='min({max_dimension},iw)':'min({max_dimension},ih)':force_original_aspect_ratio=decrease"
     cmd = [
-        "ffmpeg", "-y",
+        FFMPEG, "-y",
         "-i", video_path,
         "-vf", f"fps={extracted_fps},{scale_filter}",
         "-qscale:v", "2",
@@ -77,7 +82,7 @@ def reassemble_video(frames_dir: str, input_fps: float, output_fps: float, origi
     full smoothness/duration), and copies the audio track from
     original_video_path."""
     cmd = [
-        "ffmpeg", "-y",
+        FFMPEG, "-y",
         "-framerate", str(input_fps),
         "-i", os.path.join(frames_dir, "%05d.jpg"),
         "-i", original_video_path,

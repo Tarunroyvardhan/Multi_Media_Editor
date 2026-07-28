@@ -69,6 +69,16 @@ a {
   flex-direction: column;
 }
 
+/* Used by pages (like the Editor) where a side panel — e.g. version
+   history — needs to scroll internally instead of growing the whole page.
+   Applied as an addition, not a replacement, so other pages that rely on
+   natural page scroll (Dashboard's grid, etc.) are unaffected. */
+.app-shell.fixed-height {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -493,6 +503,27 @@ a {
   position: absolute;
   cursor: crosshair;
 }
+
+.crop-overlay {
+  position: absolute;
+  border: 1.5px solid var(--teal);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  cursor: move;
+}
+
+.crop-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--teal);
+  border-radius: 3px;
+  border: 1.5px solid #fff;
+}
+
+.crop-handle-nw { left: -6px; top: -6px; cursor: nwse-resize; }
+.crop-handle-ne { right: -6px; top: -6px; cursor: nesw-resize; }
+.crop-handle-sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.crop-handle-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
 
 .box-draft {
   position: absolute;

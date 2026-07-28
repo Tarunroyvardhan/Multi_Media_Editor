@@ -7,7 +7,7 @@ import {
   ArrowLeft, X, Scissors, Plus,
 } from 'lucide-react'
 import TopBar from '../components/TopBar'
-import { mediaApi, projectApi } from '../api/client'
+import { mediaApi, projectApi, downloadFile } from '../api/client'
 
 const TRANSITIONS = [
   { value: 'none', label: 'Cut' },
@@ -608,10 +608,13 @@ export default function Timeline() {
 
           {project.rendered_filename && !rendering && (
             <div style={{ marginBottom: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
-              <a className="btn btn-ghost" href={projectApi.downloadUrl(id)} download>
+              <button
+                className="btn btn-ghost"
+                onClick={() => downloadFile(projectApi.downloadUrl(id), `${project.name || 'project'}.mp4`)}
+              >
                 <Download size={15} />
                 Download rendered video
-              </a>
+              </button>
             </div>
           )}
 

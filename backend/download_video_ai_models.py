@@ -2,7 +2,7 @@
 
     python download_video_ai_models.py
 
-Downloads the SAM2 "tiny" checkpoint (~150MB) into ai_models/. This is
+Downloads the SAM2.1 "tiny" checkpoint (~150MB) into ai_models/. This is
 the fastest/smallest option, chosen to fit comfortably in limited VRAM.
 
 The config YAML files come bundled with the `sam2` pip package itself, so
@@ -11,11 +11,13 @@ only the checkpoint needs downloading here.
 import os
 import urllib.request
 
+# Must be the SAM2.1 checkpoint (not the older SAM2 one) — app/ai/video_segmentation.py
+# loads it against configs/sam2.1/sam2.1_hiera_t.yaml, which only matches SAM2.1 weights.
 CHECKPOINT_URL = (
-    "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_tiny.pt"
+    "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt"
 )
 DEST_DIR = os.path.join(os.path.dirname(__file__), "ai_models")
-DEST_PATH = os.path.join(DEST_DIR, "sam2_hiera_tiny.pt")
+DEST_PATH = os.path.join(DEST_DIR, "sam2.1_hiera_tiny.pt")
 
 
 def main():

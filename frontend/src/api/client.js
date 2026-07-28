@@ -12,6 +12,24 @@ client.interceptors.request.use((config) => {
   return config
 })
 
+// Browsers ignore <a download> for cross-origin URLs (the backend runs on a
+// different port than the frontend), so clicking Export just opened/viewed
+// the file instead of saving it. Fetching as a blob and downloading that
+// works regardless of origin.
+export async function downloadFile(url, filename) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const blob = await response.blob()
+  const blobUrl = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(blobUrl)
+}
+
 export const authApi = {
   register: (email, password) => client.post('/auth/register', { email, password }),
   login: (email, password) => client.post('/auth/login', { email, password }),
@@ -43,7 +61,6 @@ export const mediaApi = {
   speed: (id, factor) => client.post(`/media/${id}/speed`, { factor }),
   volume: (id, level, mute) => client.post(`/media/${id}/volume`, { level, mute }),
   watermark: (id, payload) => client.post(`/media/${id}/watermark`, payload),
-  merging: (id, payload) => client.post(`/media/${id}/merging`, payload),
   segment: (id, payload) => client.post(`/media/${id}/segment`, payload),
   removeObject: (id, mask_id) => client.post(`/media/${id}/remove-object`, { mask_id }),
   remove: (id) => client.delete(`/media/${id}`),

@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+import traceback
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
 from app.config import settings
@@ -52,6 +55,17 @@ app.include_router(media_router.router)
 app.include_router(object_removal_router.router)
 app.include_router(video_object_removal_router.router)
 app.include_router(project_router.router)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """By default, FastAPI returns a bare 500 with no JSON body for
+    unhandled exceptions — so the frontend has nothing to show the person
+    beyond a generic fallback message. This surfaces the real exception
+    type/message in the response (still printing the full traceback to the
+    backend terminal too), so errors are diagnosable from the UI directly."""
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
 
 @app.get("/health")

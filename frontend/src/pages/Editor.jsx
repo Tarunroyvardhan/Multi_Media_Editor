@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2, RotateCw, FlipHorizontal2, FlipVertical2, Maximize2, Gauge, Volume2, VolumeX, Type, History, Sparkles, Ratio, FileImage } from 'lucide-react'
+import { ArrowLeft, Scissors, Crop, SlidersHorizontal, Download, Eraser, MousePointerClick, Square, Loader2, RotateCw, FlipHorizontal2, FlipVertical2, Maximize2, Gauge, Volume2, VolumeX, Type, History, Sparkles, Ratio, FileImage, Undo2 } from 'lucide-react'
 import TopBar from '../components/TopBar'
-import { mediaApi } from '../api/client'
+import { mediaApi, downloadFile } from '../api/client'
 
 const FILTERS = [
   { id: 'grayscale', label: 'Grayscale' },
@@ -71,6 +71,8 @@ export default function Editor() {
 
   // gif export
   const [gifExporting, setGifExporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [undoing, setUndoing] = useState(false)
 
   // aspect ratio presets — needs the media's natural dimensions
   const [mediaWidth, setMediaWidth] = useState(0)
@@ -137,8 +139,8 @@ export default function Editor() {
   }
 
   useEffect(() => {
-    if (tool !== 'remove') return
-    if (media?.media_type === 'video') setFirstFrameLoading(true)
+    if (tool !== 'remove' && tool !== 'crop') return
+    if (tool === 'remove' && media?.media_type === 'video') setFirstFrameLoading(true)
     measureImgBox()
     window.addEventListener('resize', measureImgBox)
     return () => window.removeEventListener('resize', measureImgBox)
@@ -266,6 +268,20 @@ export default function Editor() {
     }
   }
 
+  // Crop used to default to a tiny fixed 200x200 box regardless of the
+  // image's real size, so applying it immediately silently cropped to a
+  // near-empty corner. Default to the FULL image instead — safe to apply
+  // as a no-op, and the visual box below makes intentional cropping clear.
+  useEffect(() => {
+    if (mediaWidth && mediaHeight) {
+      setX(0)
+      setY(0)
+      setWidth(mediaWidth)
+      setHeight(mediaHeight)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaWidth, mediaHeight])
+
   const applyAspectRatio = (ratioW, ratioH) => {
     if (!mediaWidth || !mediaHeight) return
     const targetRatio = ratioW / ratioH
@@ -284,6 +300,57 @@ export default function Editor() {
     setHeight(h)
   }
 
+  const startCropDrag = (mode, e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!imgBox || !mediaWidth || !mediaHeight) return
+    const scaleX = mediaWidth / imgBox.width
+    const scaleY = mediaHeight / imgBox.height
+    const startClientX = e.clientX
+    const startClientY = e.clientY
+    const start = { x, y, width, height }
+    const right = start.x + start.width
+    const bottom = start.y + start.height
+
+    const onMove = (ev) => {
+      const dxNatural = (ev.clientX - startClientX) * scaleX
+      const dyNatural = (ev.clientY - startClientY) * scaleY
+
+      if (mode === 'move') {
+        setX(Math.round(Math.max(0, Math.min(start.x + dxNatural, mediaWidth - start.width))))
+        setY(Math.round(Math.max(0, Math.min(start.y + dyNatural, mediaHeight - start.height))))
+        return
+      }
+
+      let newX = start.x, newY = start.y, newW = start.width, newH = start.height
+
+      if (mode.includes('w')) {
+        newX = Math.max(0, Math.min(start.x + dxNatural, right - 20))
+        newW = right - newX
+      } else if (mode.includes('e')) {
+        newW = Math.max(20, Math.min(start.width + dxNatural, mediaWidth - start.x))
+      }
+
+      if (mode.includes('n')) {
+        newY = Math.max(0, Math.min(start.y + dyNatural, bottom - 20))
+        newH = bottom - newY
+      } else if (mode.includes('s')) {
+        newH = Math.max(20, Math.min(start.height + dyNatural, mediaHeight - start.y))
+      }
+
+      setX(Math.round(newX))
+      setY(Math.round(newY))
+      setWidth(Math.round(newW))
+      setHeight(Math.round(newH))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   const loadVersions = async () => {
     setVersionsLoading(true)
     try {
@@ -293,6 +360,40 @@ export default function Editor() {
       setError('Could not load version history')
     } finally {
       setVersionsLoading(false)
+    }
+  }
+
+  // Undo works from any tab, not just the History tab — reverts to
+  // whatever the most recent saved version was (list is newest-first).
+  const handleUndo = async () => {
+    setUndoing(true)
+    setError('')
+    try {
+      const res = await mediaApi.versions(media.id)
+      const latest = res.data[0]
+      if (!latest) {
+        setError('Nothing to undo yet')
+        return
+      }
+      await mediaApi.restoreVersion(media.id, latest.id)
+      await loadMedia()
+      if (tool === 'history') await loadVersions()
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Could not undo')
+    } finally {
+      setUndoing(false)
+    }
+  }
+
+  const handleExport = async () => {
+    setExporting(true)
+    setError('')
+    try {
+      await downloadFile(mediaApi.fileUrl(media.id, media.current_filename), media.original_filename)
+    } catch (err) {
+      setError('Download failed — try again')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -354,7 +455,7 @@ export default function Editor() {
 
   if (!media) {
     return (
-      <div className="app-shell">
+      <div className="app-shell fixed-height">
         <TopBar />
         <div className="loading-screen">Loading…</div>
       </div>
@@ -365,7 +466,7 @@ export default function Editor() {
   const endPct = duration ? (end / duration) * 100 : 100
 
   return (
-    <div className="app-shell">
+    <div className="app-shell fixed-height">
       <TopBar />
 
       <div className="editor-shell">
@@ -377,6 +478,15 @@ export default function Editor() {
             <span className="project-name">{media.original_filename}</span>
           </div>
           <div style={{ display: 'flex', gap: '0.6rem' }}>
+            <button
+              className="btn btn-ghost"
+              disabled={undoing || videoProcessing}
+              onClick={handleUndo}
+              title="Undo the last edit"
+            >
+              {undoing ? <Loader2 size={15} className="spin" /> : <Undo2 size={15} />}
+              Undo
+            </button>
             {media.media_type === 'video' && (
               <button
                 className="btn btn-ghost"
@@ -387,15 +497,14 @@ export default function Editor() {
                 {gifExporting ? 'Exporting…' : 'Export GIF'}
               </button>
             )}
-            <a
-              href={mediaApi.fileUrl(media.id, media.current_filename)}
-              download
+            <button
               className="btn btn-primary"
-              style={videoProcessing ? { pointerEvents: 'none', opacity: 0.5 } : undefined}
+              disabled={videoProcessing || exporting}
+              onClick={handleExport}
             >
-              <Download size={15} />
+              {exporting ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
               Export
-            </a>
+            </button>
           </div>
         </div>
 
@@ -529,6 +638,27 @@ export default function Editor() {
                   onMouseMove={handleOverlayMouseMove}
                   onMouseUp={handleOverlayMouseUp}
                 />
+              )}
+
+              {tool === 'crop' && media.media_type === 'photo' && imgBox && mediaWidth > 0 && mediaHeight > 0 && (
+                <div
+                  className="crop-overlay"
+                  style={{
+                    left: imgBox.left + (x / mediaWidth) * imgBox.width,
+                    top: imgBox.top + (y / mediaHeight) * imgBox.height,
+                    width: (width / mediaWidth) * imgBox.width,
+                    height: (height / mediaHeight) * imgBox.height,
+                  }}
+                  onMouseDown={(e) => startCropDrag('move', e)}
+                >
+                  {['nw', 'ne', 'sw', 'se'].map((corner) => (
+                    <div
+                      key={corner}
+                      className={`crop-handle crop-handle-${corner}`}
+                      onMouseDown={(e) => startCropDrag(corner, e)}
+                    />
+                  ))}
+                </div>
               )}
 
               {dragBox && (
