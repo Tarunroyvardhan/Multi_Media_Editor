@@ -839,3 +839,24 @@ input[type="range"] {
   color: var(--text-mid);
   font-size: 0.78rem;
 }
+
+
+html.light {
+  --bg-0: #f7f7f9;
+  --bg-1: #ffffff;
+  --bg-2: #f0f1f4;
+  --bg-3: #e5e7eb;
+  --border: #d8dae0;
+  --border-soft: #e9eaed;
+
+  --text-hi: #1a1b1f;
+  --text-mid: #5b5f6b;
+  --text-low: #8b8f9a;
+
+  --accent: #ff5470;
+  --accent-soft: rgba(255, 84, 112, 0.10);
+  --accent-hover: #e5445f;
+
+  --teal: #0e9c85;
+  --teal-soft: rgba(14, 156, 133, 0.10);
+}
